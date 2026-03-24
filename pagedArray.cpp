@@ -4,6 +4,7 @@
 
 using namespace std;
 
+// Proxy implementation
 PagedArray::Proxy::Proxy(PagedArray& a, long long i) : arr(a), index(i) {}
 
 PagedArray::Proxy& PagedArray::Proxy::operator=(int value) {
@@ -15,6 +16,7 @@ PagedArray::Proxy::operator int() {
     return arr.get(index);
 }
 
+// PagedArray implementation
 PagedArray::PagedArray(const char* path, int pSize, int pCount) {
     file = fopen(path, "r+b");
     if (file == NULL) {
@@ -43,10 +45,6 @@ PagedArray::PagedArray(const char* path, int pSize, int pCount) {
         pages[i].dirty = false;
         pages[i].number = -1;
         pages[i].lastUsed = 0;
-
-        for (int j = 0; j < pageSize; j++) {
-            pages[i].data[j] = 0;
-        }
     }
 
     hits = 0;
@@ -66,25 +64,30 @@ PagedArray::~PagedArray() {
 }
 
 int PagedArray::loadPage(long long pageNumber) {
-    for (int i = 0; i < pageCount; i++) {
-        if (pages[i].loaded && pages[i].number == pageNumber) {
-            hits++;
-            pages[i].lastUsed = ++counter;
-            return i;
-        }
+    // Check if page is already loaded (O(1) with unordered_map)
+    auto it = loadedPages.find(pageNumber);
+    if (it != loadedPages.end()) {
+        int frame = it->second;
+        hits++;
+        pages[frame].lastUsed = ++counter;
+        return frame;
     }
 
+    // Page fault
     faults++;
 
+    // Find victim frame
     int victim = -1;
-
+    
+    // First try to find an empty frame
     for (int i = 0; i < pageCount; i++) {
         if (!pages[i].loaded) {
             victim = i;
             break;
         }
     }
-
+    
+    // If no empty frame, use LRU to find victim
     if (victim == -1) {
         victim = 0;
         for (int i = 1; i < pageCount; i++) {
@@ -94,8 +97,15 @@ int PagedArray::loadPage(long long pageNumber) {
         }
     }
 
+    // Flush victim if dirty
     flushPage(victim);
+    
+    // Remove victim from loadedPages map if it was loaded
+    if (pages[victim].loaded) {
+        loadedPages.erase(pages[victim].number);
+    }
 
+    // Load new page from disk
     long long offset = pageNumber * (long long)pageSize * sizeof(int);
     fseek(file, offset, SEEK_SET);
 
@@ -106,6 +116,7 @@ int PagedArray::loadPage(long long pageNumber) {
         toRead = (int)remaining;
     }
 
+    // Clear the page data first
     for (int i = 0; i < pageSize; i++) {
         pages[victim].data[i] = 0;
     }
@@ -116,6 +127,9 @@ int PagedArray::loadPage(long long pageNumber) {
     pages[victim].loaded = true;
     pages[victim].dirty = false;
     pages[victim].lastUsed = ++counter;
+    
+    // Add to loaded pages map
+    loadedPages[pageNumber] = victim;
 
     return victim;
 }
@@ -136,14 +150,14 @@ void PagedArray::flushPage(int i) {
     }
 
     fwrite(pages[i].data, sizeof(int), toWrite, file);
-    fflush(file);
-
+    // Removed fflush here for performance - OS will handle buffering
+    
     pages[i].dirty = false;
 }
 
 int PagedArray::get(long long index) {
     if (index < 0 || index >= total) {
-        cout << "Indice fuera de rango" << endl;
+        cout << "Indice fuera de rango: " << index << endl;
         exit(1);
     }
 
@@ -156,7 +170,7 @@ int PagedArray::get(long long index) {
 
 void PagedArray::set(long long index, int value) {
     if (index < 0 || index >= total) {
-        cout << "Indice fuera de rango" << endl;
+        cout << "Indice fuera de rango: " << index << endl;
         exit(1);
     }
 
@@ -188,4 +202,5 @@ void PagedArray::flushAll() {
     for (int i = 0; i < pageCount; i++) {
         flushPage(i);
     }
+    fflush(file); // Final flush to ensure all data is written
 }

@@ -16,6 +16,7 @@ long long getSizeBytes(string size) {
 int main(int argc, char* argv[]) {
     if (argc != 5) {
         cout << "Uso: ./generator -size <SIZE> -output <FILE>\n";
+        cout << "SIZE: SMALL (128MB), MEDIUM (256MB), LARGE (512MB)\n";
         return 1;
     }
 
@@ -25,7 +26,7 @@ int main(int argc, char* argv[]) {
     long long bytes = getSizeBytes(sizeArg);
 
     if (bytes == -1) {
-        cout << "Size invalido\n";
+        cout << "Size invalido. Use: SMALL, MEDIUM, LARGE\n";
         return 1;
     }
 
@@ -38,13 +39,28 @@ int main(int argc, char* argv[]) {
     srand(time(0));
 
     long long totalInts = bytes / sizeof(int);
-
-    for (long long i = 0; i < totalInts; i++) {
-        int num = rand();
-        file.write((char*)&num, sizeof(int));
+    const int BUFFER_SIZE = 1024 * 1024; // 1M de enteros por buffer
+    int* buffer = new int[BUFFER_SIZE];
+    
+    cout << "Generando " << totalInts << " enteros (" << bytes / (1024*1024) << " MB)..." << endl;
+    
+    long long remaining = totalInts;
+    while (remaining > 0) {
+        int toWrite = (remaining > BUFFER_SIZE) ? BUFFER_SIZE : (int)remaining;
+        
+        for (int i = 0; i < toWrite; i++) {
+            buffer[i] = rand();
+        }
+        
+        file.write((char*)buffer, toWrite * sizeof(int));
+        remaining -= toWrite;
+        
+        cout << "Progreso: " << ((totalInts - remaining) * 100 / totalInts) << "%\r" << flush;
     }
-
+    
+    delete[] buffer;
     file.close();
-    cout << "Archivo generado correctamente\n";
+    
+    cout << "\nArchivo generado correctamente: " << output << endl;
     return 0;
 }

@@ -2,6 +2,7 @@
 #define PAGEDARRAY_H
 
 #include <cstdio>
+#include <unordered_map>
 
 class PagedArray {
 private:
@@ -18,6 +19,7 @@ private:
     int pageSize;
     int pageCount;
     Page* pages;
+    std::unordered_map<long long, int> loadedPages; // pageNumber -> frame index
 
     long long hits;
     long long faults;
@@ -43,7 +45,6 @@ public:
     private:
         PagedArray& arr;
         long long index;
-
     public:
         Proxy(PagedArray& a, long long i);
         Proxy& operator=(int value);
