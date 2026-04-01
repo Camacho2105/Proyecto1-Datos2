@@ -1,10 +1,14 @@
 #include "PagedArray.h"
 #include <iostream>
 #include <cstdlib>
+#include <cstring>
 
 using namespace std;
 
+// =====================================================
 // Proxy implementation
+// =====================================================
+
 PagedArray::Proxy::Proxy(PagedArray& a, long long i) : arr(a), index(i) {}
 
 PagedArray::Proxy& PagedArray::Proxy::operator=(int value) {
@@ -16,7 +20,10 @@ PagedArray::Proxy::operator int() {
     return arr.get(index);
 }
 
+// =====================================================
 // PagedArray implementation
+// =====================================================
+
 PagedArray::PagedArray(const char* path, int pSize, int pCount) {
     file = fopen(path, "r+b");
     if (file == NULL) {
@@ -64,22 +71,20 @@ PagedArray::~PagedArray() {
 }
 
 int PagedArray::loadPage(long long pageNumber) {
-    // Check if page is already loaded (O(1) with unordered_map)
+    // Verificar si ya está cargada
     auto it = loadedPages.find(pageNumber);
     if (it != loadedPages.end()) {
-        int frame = it->second;
         hits++;
-        pages[frame].lastUsed = ++counter;
-        return frame;
+        pages[it->second].lastUsed = ++counter;
+        return it->second;
     }
 
     // Page fault
     faults++;
 
-    // Find victim frame
+    // Buscar víctima: primero página vacía, luego LRU
     int victim = -1;
     
-    // First try to find an empty frame
     for (int i = 0; i < pageCount; i++) {
         if (!pages[i].loaded) {
             victim = i;
@@ -87,7 +92,6 @@ int PagedArray::loadPage(long long pageNumber) {
         }
     }
     
-    // If no empty frame, use LRU to find victim
     if (victim == -1) {
         victim = 0;
         for (int i = 1; i < pageCount; i++) {
@@ -97,28 +101,24 @@ int PagedArray::loadPage(long long pageNumber) {
         }
     }
 
-    // Flush victim if dirty
-    flushPage(victim);
-    
-    // Remove victim from loadedPages map if it was loaded
+    // Flush si es necesario
     if (pages[victim].loaded) {
+        if (pages[victim].dirty) {
+            flushPage(victim);
+        }
         loadedPages.erase(pages[victim].number);
     }
-
-    // Load new page from disk
+    
+    // Calcular offset y lectura
     long long offset = pageNumber * (long long)pageSize * sizeof(int);
     fseek(file, offset, SEEK_SET);
 
     long long remaining = total - pageNumber * (long long)pageSize;
-    int toRead = pageSize;
+    int toRead = (remaining < pageSize) ? (int)remaining : pageSize;
 
-    if (remaining < pageSize) {
-        toRead = (int)remaining;
-    }
-
-    // Clear the page data first
-    for (int i = 0; i < pageSize; i++) {
-        pages[victim].data[i] = 0;
+    // Limpiar página solo si es parcial
+    if (toRead < pageSize) {
+        memset(pages[victim].data, 0, pageSize * sizeof(int));
     }
 
     fread(pages[victim].data, sizeof(int), toRead, file);
@@ -128,7 +128,6 @@ int PagedArray::loadPage(long long pageNumber) {
     pages[victim].dirty = false;
     pages[victim].lastUsed = ++counter;
     
-    // Add to loaded pages map
     loadedPages[pageNumber] = victim;
 
     return victim;
@@ -143,14 +142,9 @@ void PagedArray::flushPage(int i) {
     fseek(file, offset, SEEK_SET);
 
     long long remaining = total - pages[i].number * (long long)pageSize;
-    int toWrite = pageSize;
-
-    if (remaining < pageSize) {
-        toWrite = (int)remaining;
-    }
+    int toWrite = (remaining < pageSize) ? (int)remaining : pageSize;
 
     fwrite(pages[i].data, sizeof(int), toWrite, file);
-    // Removed fflush here for performance - OS will handle buffering
     
     pages[i].dirty = false;
 }
@@ -182,6 +176,17 @@ void PagedArray::set(long long index, int value) {
     pages[frame].dirty = true;
 }
 
+void PagedArray::prefetch(long long index) {
+    if (index < 0 || index >= total) return;
+    
+    long long pageNum = index / pageSize;
+    auto it = loadedPages.find(pageNum);
+    
+    if (it == loadedPages.end()) {
+        loadPage(pageNum);
+    }
+}
+
 PagedArray::Proxy PagedArray::operator[](long long index) {
     return Proxy(*this, index);
 }
@@ -202,5 +207,5 @@ void PagedArray::flushAll() {
     for (int i = 0; i < pageCount; i++) {
         flushPage(i);
     }
-    fflush(file); // Final flush to ensure all data is written
+    fflush(file);
 }

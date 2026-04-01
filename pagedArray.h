@@ -19,8 +19,8 @@ private:
     int pageSize;
     int pageCount;
     Page* pages;
-    std::unordered_map<long long, int> loadedPages; // pageNumber -> frame index
-
+    std::unordered_map<long long, int> loadedPages;
+    
     long long hits;
     long long faults;
     long long counter;
@@ -40,6 +40,8 @@ public:
     long long getFaults();
 
     void flushAll();
+    
+    void prefetch(long long index);
 
     class Proxy {
     private:

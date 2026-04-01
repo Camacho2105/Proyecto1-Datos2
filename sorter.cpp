@@ -7,13 +7,22 @@
 using namespace std;
 
 // =====================================================
-// Utilidades
+// Utilidades Optimizadas
 // =====================================================
 
 void copyFile(const char* in, const char* out) {
+    const int BUFFER_SIZE = 64 * 1024 * 1024; // 64MB buffer
+    char* buffer = new char[BUFFER_SIZE];
+    
     ifstream src(in, ios::binary);
     ofstream dst(out, ios::binary);
-    dst << src.rdbuf();
+    
+    while (src.read(buffer, BUFFER_SIZE)) {
+        dst.write(buffer, src.gcount());
+    }
+    dst.write(buffer, src.gcount());
+    
+    delete[] buffer;
 }
 
 void generateReadableFile(PagedArray& arr, const char* textFile) {
@@ -26,49 +35,118 @@ void generateReadableFile(PagedArray& arr, const char* textFile) {
     long long n = arr.size();
     cout << "Generando archivo legible (" << n << " enteros)..." << endl;
     
+    // Buffer para reducir llamadas a write
+    const int LINE_BUFFER = 10000;
+    string lineBuffer;
+    lineBuffer.reserve(LINE_BUFFER * 12);
+    
     for (long long i = 0; i < n; i++) {
-        if (i > 0) out << ",";
-        out << (int)arr[i];
+        if (i > 0) lineBuffer += ",";
+        lineBuffer += to_string((int)arr[i]);
         
-        // Mostrar progreso cada 1%
+        if (lineBuffer.size() > LINE_BUFFER) {
+            out << lineBuffer;
+            lineBuffer.clear();
+        }
+        
         if (i % (n / 100 + 1) == 0) {
             cout << "Progreso: " << (i * 100 / n) << "%\r" << flush;
         }
+    }
+    
+    if (!lineBuffer.empty()) {
+        out << lineBuffer;
     }
     
     cout << "\nArchivo legible generado: " << textFile << endl;
 }
 
 void swapPaged(PagedArray& arr, long long i, long long j) {
-    int temp = (int)arr[i];
-    arr[i] = (int)arr[j];
-    arr[j] = temp;
+    if (i == j) return;
+    int temp = arr.get(i);
+    arr.set(i, arr.get(j));
+    arr.set(j, temp);
 }
 
 // =====================================================
-// QUICK SORT
+// QUICK SORT (Optimizado con mediana de tres)
 // =====================================================
 
-long long partitionQuick(PagedArray& arr, long long low, long long high) {
-    int pivot = (int)arr[high];
-    long long i = low - 1;
+inline long long medianOfThree(PagedArray& arr, long long low, long long high) {
+    long long mid = low + (high - low) / 2;
+    
+    if (arr.get(low) > arr.get(mid)) {
+        int temp = arr.get(low);
+        arr.set(low, arr.get(mid));
+        arr.set(mid, temp);
+    }
+    if (arr.get(low) > arr.get(high)) {
+        int temp = arr.get(low);
+        arr.set(low, arr.get(high));
+        arr.set(high, temp);
+    }
+    if (arr.get(mid) > arr.get(high)) {
+        int temp = arr.get(mid);
+        arr.set(mid, arr.get(high));
+        arr.set(high, temp);
+    }
+    
+    return mid;
+}
 
+long long partitionQuick(PagedArray& arr, long long low, long long high) {
+    long long pivotIndex = medianOfThree(arr, low, high);
+    
+    // Swap pivotIndex con high
+    int tempPivot = arr.get(pivotIndex);
+    arr.set(pivotIndex, arr.get(high));
+    arr.set(high, tempPivot);
+    
+    int pivot = arr.get(high);
+    long long i = low - 1;
+    
     for (long long j = low; j < high; j++) {
-        if ((int)arr[j] < pivot) {
+        if (arr.get(j) < pivot) {
             i++;
-            swapPaged(arr, i, j);
+            // Swap arr[i] y arr[j]
+            int temp = arr.get(i);
+            arr.set(i, arr.get(j));
+            arr.set(j, temp);
         }
     }
-
-    swapPaged(arr, i + 1, high);
+    
+    // Swap arr[i+1] y arr[high]
+    int temp = arr.get(i + 1);
+    arr.set(i + 1, arr.get(high));
+    arr.set(high, temp);
+    
     return i + 1;
 }
 
 void quickSort(PagedArray& arr, long long low, long long high) {
-    if (low < high) {
+    while (low < high) {
+        if (high - low < 16) {
+            for (long long i = low + 1; i <= high; i++) {
+                int key = arr.get(i);
+                long long j = i - 1;
+                while (j >= low && arr.get(j) > key) {
+                    arr.set(j + 1, arr.get(j));
+                    j--;
+                }
+                arr.set(j + 1, key);
+            }
+            break;
+        }
+        
         long long pi = partitionQuick(arr, low, high);
-        quickSort(arr, low, pi - 1);
-        quickSort(arr, pi + 1, high);
+        
+        if (pi - low < high - pi) {
+            quickSort(arr, low, pi - 1);
+            low = pi + 1;
+        } else {
+            quickSort(arr, pi + 1, high);
+            high = pi - 1;
+        }
     }
 }
 
@@ -80,88 +158,194 @@ void heapify(PagedArray& arr, long long n, long long i) {
     long long largest = i;
     long long left = 2 * i + 1;
     long long right = 2 * i + 2;
-
-    if (left < n && (int)arr[left] > (int)arr[largest]) {
+    
+    if (left < n && arr.get(left) > arr.get(largest)) {
         largest = left;
     }
-
-    if (right < n && (int)arr[right] > (int)arr[largest]) {
+    
+    if (right < n && arr.get(right) > arr.get(largest)) {
         largest = right;
     }
-
+    
     if (largest != i) {
-        swapPaged(arr, i, largest);
+        int temp = arr.get(i);
+        arr.set(i, arr.get(largest));
+        arr.set(largest, temp);
         heapify(arr, n, largest);
     }
 }
 
 void heapSort(PagedArray& arr, long long n) {
-    // Build heap
     for (long long i = n / 2 - 1; i >= 0; i--) {
         heapify(arr, n, i);
     }
-
-    // Extract elements from heap
+    
     for (long long i = n - 1; i > 0; i--) {
-        swapPaged(arr, 0, i);
+        int temp = arr.get(0);
+        arr.set(0, arr.get(i));
+        arr.set(i, temp);
         heapify(arr, i, 0);
     }
 }
 
 // =====================================================
-// SHELL SORT
+// MERGE SORT (Bottom-Up Iterativo)
+// =====================================================
+
+void merge(PagedArray& arr, long long left, long long mid, long long right) {
+    long long n1 = mid - left + 1;
+    long long n2 = right - mid;
+    
+    int* L = new int[n1];
+    int* R = new int[n2];
+    
+    for (long long i = 0; i < n1; i++)
+        L[i] = arr.get(left + i);
+    for (long long j = 0; j < n2; j++)
+        R[j] = arr.get(mid + 1 + j);
+    
+    long long i = 0, j = 0, k = left;
+    
+    while (i < n1 && j < n2) {
+        if (L[i] <= R[j]) {
+            arr.set(k, L[i]);
+            i++;
+        } else {
+            arr.set(k, R[j]);
+            j++;
+        }
+        k++;
+    }
+    
+    while (i < n1) {
+        arr.set(k, L[i]);
+        i++;
+        k++;
+    }
+    
+    while (j < n2) {
+        arr.set(k, R[j]);
+        j++;
+        k++;
+    }
+    
+    delete[] L;
+    delete[] R;
+}
+
+void mergeSort(PagedArray& arr, long long n) {
+    for (long long currSize = 1; currSize < n; currSize *= 2) {
+        for (long long leftStart = 0; leftStart < n - 1; leftStart += 2 * currSize) {
+            long long mid = leftStart + currSize - 1;
+            long long rightEnd = min(leftStart + 2 * currSize - 1, n - 1);
+            
+            if (mid < rightEnd) {
+                merge(arr, leftStart, mid, rightEnd);
+            }
+        }
+    }
+}
+
+// =====================================================
+// SHELL SORT (Secuencia de gaps optimizada de Ciura)
 // =====================================================
 
 void shellSort(PagedArray& arr, long long n) {
-    for (long long gap = n / 2; gap > 0; gap /= 2) {
+    long long gaps[] = {701, 301, 132, 57, 23, 10, 4, 1};
+    int numGaps = sizeof(gaps) / sizeof(gaps[0]);
+    
+    for (int g = 0; g < numGaps; g++) {
+        long long gap = gaps[g];
+        if (gap >= n) continue;
+        
         for (long long i = gap; i < n; i++) {
-            int temp = (int)arr[i];
+            int temp = arr.get(i);
             long long j = i;
-
-            while (j >= gap && (int)arr[j - gap] > temp) {
-                arr[j] = (int)arr[j - gap];
+            
+            while (j >= gap && arr.get(j - gap) > temp) {
+                arr.set(j, arr.get(j - gap));
                 j -= gap;
             }
-
-            arr[j] = temp;
+            
+            arr.set(j, temp);
         }
     }
 }
 
 // =====================================================
-// INSERTION SORT
+// TIM SORT (Híbrido Merge + Insertion)
 // =====================================================
 
-void insertionSort(PagedArray& arr, long long n) {
-    for (long long i = 1; i < n; i++) {
-        int key = (int)arr[i];
-        long long j = i - 1;
+const long long RUN = 32;
 
-        while (j >= 0 && (int)arr[j] > key) {
-            arr[j + 1] = (int)arr[j];
+void insertionSortTim(PagedArray& arr, long long left, long long right) {
+    for (long long i = left + 1; i <= right; i++) {
+        int temp = arr.get(i);
+        long long j = i - 1;
+        
+        while (j >= left && arr.get(j) > temp) {
+            arr.set(j + 1, arr.get(j));
             j--;
         }
-
-        arr[j + 1] = key;
+        
+        arr.set(j + 1, temp);
     }
 }
 
-// =====================================================
-// SELECTION SORT
-// =====================================================
-
-void selectionSort(PagedArray& arr, long long n) {
-    for (long long i = 0; i < n - 1; i++) {
-        long long minIndex = i;
-
-        for (long long j = i + 1; j < n; j++) {
-            if ((int)arr[j] < (int)arr[minIndex]) {
-                minIndex = j;
-            }
+void mergeTim(PagedArray& arr, long long l, long long m, long long r) {
+    long long len1 = m - l + 1;
+    long long len2 = r - m;
+    
+    int* left = new int[len1];
+    int* right = new int[len2];
+    
+    for (long long i = 0; i < len1; i++)
+        left[i] = arr.get(l + i);
+    for (long long i = 0; i < len2; i++)
+        right[i] = arr.get(m + 1 + i);
+    
+    long long i = 0, j = 0, k = l;
+    
+    while (i < len1 && j < len2) {
+        if (left[i] <= right[j]) {
+            arr.set(k, left[i]);
+            i++;
+        } else {
+            arr.set(k, right[j]);
+            j++;
         }
+        k++;
+    }
+    
+    while (i < len1) {
+        arr.set(k, left[i]);
+        i++;
+        k++;
+    }
+    
+    while (j < len2) {
+        arr.set(k, right[j]);
+        j++;
+        k++;
+    }
+    
+    delete[] left;
+    delete[] right;
+}
 
-        if (minIndex != i) {
-            swapPaged(arr, i, minIndex);
+void timSort(PagedArray& arr, long long n) {
+    for (long long i = 0; i < n; i += RUN) {
+        insertionSortTim(arr, i, min((i + RUN - 1), (n - 1)));
+    }
+    
+    for (long long size = RUN; size < n; size *= 2) {
+        for (long long left = 0; left < n; left += 2 * size) {
+            long long mid = left + size - 1;
+            long long right = min((left + 2 * size - 1), (n - 1));
+            
+            if (mid < right) {
+                mergeTim(arr, left, mid, right);
+            }
         }
     }
 }
@@ -174,7 +358,7 @@ int main(int argc, char* argv[]) {
     if (argc != 11) {
         cout << "Uso: ./sorter -input <INPUT FILE PATH> -output <OUTPUT FILE PATH> ";
         cout << "-alg <ALGORITMO> -pageSize <PAGE-SIZE> -pageCount <PAGE-COUNT>\n";
-        cout << "Algoritmos: quick, heap, shell, insertion, selection\n";
+        cout << "Algoritmos: quick, heap, merge, shell, tim\n";
         return 1;
     }
 
@@ -190,10 +374,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (strcmp(alg, "quick") != 0 && strcmp(alg, "heap") != 0 && 
-        strcmp(alg, "shell") != 0 && strcmp(alg, "insertion") != 0 && 
-        strcmp(alg, "selection") != 0) {
+        strcmp(alg, "merge") != 0 && strcmp(alg, "shell") != 0 && 
+        strcmp(alg, "tim") != 0) {
         cout << "Algoritmo no soportado\n";
-        cout << "Use: quick, heap, shell, insertion, selection\n";
+        cout << "Use: quick, heap, merge, shell, tim\n";
         return 1;
     }
 
@@ -226,14 +410,14 @@ int main(int argc, char* argv[]) {
     else if (strcmp(alg, "heap") == 0) {
         heapSort(arr, n);
     }
+    else if (strcmp(alg, "merge") == 0) {
+        mergeSort(arr, n);
+    }
     else if (strcmp(alg, "shell") == 0) {
         shellSort(arr, n);
     }
-    else if (strcmp(alg, "insertion") == 0) {
-        insertionSort(arr, n);
-    }
-    else if (strcmp(alg, "selection") == 0) {
-        selectionSort(arr, n);
+    else if (strcmp(alg, "tim") == 0) {
+        timSort(arr, n);
     }
 
     cout << "Escribiendo cambios al disco..." << endl;
