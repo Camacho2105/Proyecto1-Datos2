@@ -7,22 +7,48 @@
 
 using namespace std;
 
-long long getSizeBytes(string size) {
-    if (size == "SMALL") return 128LL * 1024 * 1024;      // 128 MB
-    if (size == "MEDIUM") return 256LL * 1024 * 1024;    // 256 MB
-    if (size == "LARGE") return 512LL * 1024 * 1024;     // 512 MB
+long long getSizeBytes(const string& size) {
+    if (size == "SMALL") return 128LL * 1024 * 1024;
+    if (size == "MEDIUM") return 256LL * 1024 * 1024;
+    if (size == "LARGE") return 512LL * 1024 * 1024;
     return -1;
 }
 
-int main(int argc, char* argv[]) {
+void printUsage() {
+    cout << "Uso: ./generator -size <SIZE> -output <FILE>\n";
+    cout << "SIZE: SMALL (128MB), MEDIUM (256MB), LARGE (512MB)\n";
+}
+
+bool parseArguments(int argc, char* argv[], string& sizeArg, string& output) {
     if (argc != 5) {
-        cout << "Uso: ./generator -size <SIZE> -output <FILE>\n";
-        cout << "SIZE: SMALL (128MB), MEDIUM (256MB), LARGE (512MB)\n";
-        return 1;
+        return false;
     }
 
-    string sizeArg = argv[2];
-    string output = argv[4];
+    for (int i = 1; i < argc; i += 2) {
+        if (i + 1 >= argc) {
+            return false;
+        }
+
+        if (string(argv[i]) == "-size") {
+            sizeArg = argv[i + 1];
+        } else if (string(argv[i]) == "-output") {
+            output = argv[i + 1];
+        } else {
+            return false;
+        }
+    }
+
+    return !sizeArg.empty() && !output.empty();
+}
+
+int main(int argc, char* argv[]) {
+    string sizeArg;
+    string output;
+
+    if (!parseArguments(argc, argv, sizeArg, output)) {
+        printUsage();
+        return 1;
+    }
 
     long long bytes = getSizeBytes(sizeArg);
 
@@ -31,54 +57,54 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Abrir archivo con buffer grande para mejor rendimiento
-    ofstream file(output, ios::binary);
+    ofstream file(output, ios::binary | ios::trunc);
     if (!file) {
         cout << "No se pudo crear el archivo\n";
         return 1;
     }
 
-    srand(time(0));
-    long long totalInts = bytes / sizeof(int);
-    
-    // Buffer de 4MB para escritura más rápida
-    const int BUFFER_SIZE = 1024 * 1024; // 1M enteros = 4MB
+    srand(static_cast<unsigned int>(time(0)));
+    long long totalInts = bytes / static_cast<long long>(sizeof(int));
+
+    const int BUFFER_SIZE = 1024 * 1024;
     int* buffer = new int[BUFFER_SIZE];
-    
-    cout << "Generando " << totalInts << " enteros (" << bytes / (1024*1024) << " MB)..." << endl;
-    
+
+    cout << "Generando " << totalInts << " enteros (" << bytes / (1024 * 1024) << " MB)..." << endl;
+
     auto start = chrono::high_resolution_clock::now();
-    
+
     long long remaining = totalInts;
     long long totalWritten = 0;
-    
+
     while (remaining > 0) {
-        int toWrite = (remaining > BUFFER_SIZE) ? BUFFER_SIZE : (int)remaining;
-        
-        // Generar números aleatorios
+        int toWrite = (remaining > BUFFER_SIZE) ? BUFFER_SIZE : static_cast<int>(remaining);
+
         for (int i = 0; i < toWrite; i++) {
             buffer[i] = rand();
         }
-        
-        // Escribir al archivo
-        file.write((char*)buffer, toWrite * sizeof(int));
-        
+
+        file.write(reinterpret_cast<char*>(buffer), toWrite * static_cast<int>(sizeof(int)));
+        if (!file) {
+            cout << "Error al escribir en el archivo\n";
+            delete[] buffer;
+            return 1;
+        }
+
         remaining -= toWrite;
         totalWritten += toWrite;
-        
-        // Mostrar progreso
-        int percent = (totalWritten * 100) / totalInts;
+
+        int percent = static_cast<int>((totalWritten * 100) / totalInts);
         cout << "Progreso: " << percent << "%\r" << flush;
     }
-    
+
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed = end - start;
-    
+
     delete[] buffer;
     file.close();
-    
+
     cout << "\nArchivo generado correctamente: " << output << endl;
     cout << "Tiempo de generacion: " << elapsed.count() << " segundos\n";
-    
+
     return 0;
 }

@@ -20,7 +20,7 @@ private:
     int pageCount;
     Page* pages;
     std::unordered_map<long long, int> loadedPages;
-    
+
     long long hits;
     long long faults;
     long long counter;
@@ -35,12 +35,11 @@ public:
     int get(long long index);
     void set(long long index, int value);
 
-    long long size();
-    long long getHits();
-    long long getFaults();
+    long long size() const;
+    long long getHits() const;
+    long long getFaults() const;
 
     void flushAll();
-    
     void prefetch(long long index);
 
     class Proxy {
