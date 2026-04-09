@@ -8,15 +8,15 @@
 using namespace std;
 
 long long getSizeBytes(const string& size) {
-    if (size == "SMALL") return 128LL * 1024 * 1024;
-    if (size == "MEDIUM") return 256LL * 1024 * 1024;
-    if (size == "LARGE") return 512LL * 1024 * 1024;
+    if (size == "SMALL") return 256LL * 1024 * 1024;
+    if (size == "MEDIUM") return 512LL * 1024 * 1024;
+    if (size == "LARGE") return 1024LL * 1024 * 1024;
     return -1;
 }
 
 void printUsage() {
     cout << "Uso: ./generator -size <SIZE> -output <FILE>\n";
-    cout << "SIZE: SMALL (128MB), MEDIUM (256MB), LARGE (512MB)\n";
+    cout << "SIZE: SMALL (256MB), MEDIUM (512MB), LARGE (1024MB)\n";
 }
 
 bool parseArguments(int argc, char* argv[], string& sizeArg, string& output) {

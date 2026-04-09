@@ -2,7 +2,6 @@
 #define PAGEDARRAY_H
 
 #include <cstdio>
-#include <unordered_map>
 
 class PagedArray {
 private:
@@ -16,17 +15,32 @@ private:
 
     FILE* file;
     long long total;
+    long long totalPages;
     int pageSize;
     int pageCount;
+
     Page* pages;
-    std::unordered_map<long long, int> loadedPages;
+
+    // Mapeo directo: page number -> frame index, -1 si no esta cargada
+    int* pageToFrame;
 
     long long hits;
     long long faults;
     long long counter;
 
+    // Frames libres
+    int freeFrameCount;
+    int* freeFrames;
+
+    // Cache de la ultima pagina usada
+    long long lastPageNumber;
+    int lastFrame;
+    bool hasLastPage;
+
+    int findLoadedPage(long long pageNumber);
     int loadPage(long long pageNumber);
-    void flushPage(int i);
+    int selectVictimFrame();
+    void flushPage(int frame);
 
 public:
     PagedArray(const char* path, int pSize, int pCount);
@@ -46,10 +60,12 @@ public:
     private:
         PagedArray& arr;
         long long index;
+
     public:
         Proxy(PagedArray& a, long long i);
         Proxy& operator=(int value);
-        operator int();
+        Proxy& operator=(const Proxy& other);
+        operator int() const;
     };
 
     Proxy operator[](long long index);

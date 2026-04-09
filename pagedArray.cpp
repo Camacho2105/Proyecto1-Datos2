@@ -2,7 +2,6 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
-#include <cerrno>
 
 using namespace std;
 
@@ -27,7 +26,7 @@ namespace {
 }
 
 // =====================================================
-// Proxy implementation
+// Proxy
 // =====================================================
 
 PagedArray::Proxy::Proxy(PagedArray& a, long long i) : arr(a), index(i) {}
@@ -37,12 +36,17 @@ PagedArray::Proxy& PagedArray::Proxy::operator=(int value) {
     return *this;
 }
 
-PagedArray::Proxy::operator int() {
+PagedArray::Proxy& PagedArray::Proxy::operator=(const Proxy& other) {
+    arr.set(index, other.arr.get(other.index));
+    return *this;
+}
+
+PagedArray::Proxy::operator int() const {
     return arr.get(index);
 }
 
 // =====================================================
-// PagedArray implementation
+// PagedArray
 // =====================================================
 
 PagedArray::PagedArray(const char* path, int pSize, int pCount) {
@@ -78,6 +82,11 @@ PagedArray::PagedArray(const char* path, int pSize, int pCount) {
     }
 
     total = fileBytes / static_cast<long long>(sizeof(int));
+    totalPages = (total + pageSize - 1) / pageSize; // se corrige luego pageSize real
+    pageSize = pSize;
+    pageCount = pCount;
+
+    totalPages = (total + static_cast<long long>(pageSize) - 1) / static_cast<long long>(pageSize);
 
     if (fileSeek64(file, 0, SEEK_SET) != 0) {
         cout << "Error al volver al inicio del archivo" << endl;
@@ -85,23 +94,33 @@ PagedArray::PagedArray(const char* path, int pSize, int pCount) {
         exit(1);
     }
 
-    pageSize = pSize;
-    pageCount = pCount;
-
     pages = new Page[pageCount];
-    loadedPages.reserve(pageCount * 2);
-
     for (int i = 0; i < pageCount; i++) {
         pages[i].data = new int[pageSize];
+        pages[i].number = -1;
         pages[i].loaded = false;
         pages[i].dirty = false;
-        pages[i].number = -1;
         pages[i].lastUsed = 0;
+    }
+
+    pageToFrame = new int[totalPages];
+    for (long long i = 0; i < totalPages; i++) {
+        pageToFrame[i] = -1;
+    }
+
+    freeFrames = new int[pageCount];
+    freeFrameCount = pageCount;
+    for (int i = 0; i < pageCount; i++) {
+        freeFrames[i] = pageCount - 1 - i;
     }
 
     hits = 0;
     faults = 0;
     counter = 0;
+
+    hasLastPage = false;
+    lastPageNumber = -1;
+    lastFrame = -1;
 }
 
 PagedArray::~PagedArray() {
@@ -112,42 +131,66 @@ PagedArray::~PagedArray() {
     }
 
     delete[] pages;
+    delete[] pageToFrame;
+    delete[] freeFrames;
     fclose(file);
 }
 
-int PagedArray::loadPage(long long pageNumber) {
-    auto it = loadedPages.find(pageNumber);
-    if (it != loadedPages.end()) {
+int PagedArray::findLoadedPage(long long pageNumber) {
+    if (hasLastPage && lastPageNumber == pageNumber) {
         hits++;
-        pages[it->second].lastUsed = ++counter;
-        return it->second;
+        pages[lastFrame].lastUsed = ++counter;
+        return lastFrame;
+    }
+
+    int frame = pageToFrame[pageNumber];
+    if (frame != -1) {
+        hits++;
+        pages[frame].lastUsed = ++counter;
+
+        hasLastPage = true;
+        lastPageNumber = pageNumber;
+        lastFrame = frame;
+
+        return frame;
+    }
+
+    return -1;
+}
+
+int PagedArray::selectVictimFrame() {
+    if (freeFrameCount > 0) {
+        freeFrameCount--;
+        return freeFrames[freeFrameCount];
+    }
+
+    int victim = 0;
+    for (int i = 1; i < pageCount; i++) {
+        if (pages[i].lastUsed < pages[victim].lastUsed) {
+            victim = i;
+        }
+    }
+    return victim;
+}
+
+int PagedArray::loadPage(long long pageNumber) {
+    int frame = findLoadedPage(pageNumber);
+    if (frame != -1) {
+        return frame;
     }
 
     faults++;
 
-    int victim = -1;
-
-    for (int i = 0; i < pageCount; i++) {
-        if (!pages[i].loaded) {
-            victim = i;
-            break;
-        }
-    }
-
-    if (victim == -1) {
-        victim = 0;
-        for (int i = 1; i < pageCount; i++) {
-            if (pages[i].lastUsed < pages[victim].lastUsed) {
-                victim = i;
-            }
-        }
-    }
+    int victim = selectVictimFrame();
 
     if (pages[victim].loaded) {
         if (pages[victim].dirty) {
             flushPage(victim);
         }
-        loadedPages.erase(pages[victim].number);
+
+        if (pages[victim].number >= 0) {
+            pageToFrame[pages[victim].number] = -1;
+        }
     }
 
     long long offset = pageNumber * static_cast<long long>(pageSize) * sizeof(int);
@@ -156,7 +199,8 @@ int PagedArray::loadPage(long long pageNumber) {
         exit(1);
     }
 
-    long long remaining = total - pageNumber * static_cast<long long>(pageSize);
+    long long firstIndex = pageNumber * static_cast<long long>(pageSize);
+    long long remaining = total - firstIndex;
     int toRead = (remaining < pageSize) ? static_cast<int>(remaining) : pageSize;
 
     if (toRead < pageSize) {
@@ -174,31 +218,37 @@ int PagedArray::loadPage(long long pageNumber) {
     pages[victim].dirty = false;
     pages[victim].lastUsed = ++counter;
 
-    loadedPages[pageNumber] = victim;
+    pageToFrame[pageNumber] = victim;
+
+    hasLastPage = true;
+    lastPageNumber = pageNumber;
+    lastFrame = victim;
+
     return victim;
 }
 
-void PagedArray::flushPage(int i) {
-    if (!pages[i].loaded || !pages[i].dirty) {
+void PagedArray::flushPage(int frame) {
+    if (!pages[frame].loaded || !pages[frame].dirty) {
         return;
     }
 
-    long long offset = pages[i].number * static_cast<long long>(pageSize) * sizeof(int);
+    long long offset = pages[frame].number * static_cast<long long>(pageSize) * sizeof(int);
     if (fileSeek64(file, offset, SEEK_SET) != 0) {
         cout << "Error al posicionarse en el archivo para escribir una pagina" << endl;
         exit(1);
     }
 
-    long long remaining = total - pages[i].number * static_cast<long long>(pageSize);
+    long long firstIndex = pages[frame].number * static_cast<long long>(pageSize);
+    long long remaining = total - firstIndex;
     int toWrite = (remaining < pageSize) ? static_cast<int>(remaining) : pageSize;
 
-    size_t writeCount = fwrite(pages[i].data, sizeof(int), toWrite, file);
+    size_t writeCount = fwrite(pages[frame].data, sizeof(int), toWrite, file);
     if (writeCount != static_cast<size_t>(toWrite)) {
         cout << "Error al escribir una pagina a disco" << endl;
         exit(1);
     }
 
-    pages[i].dirty = false;
+    pages[frame].dirty = false;
 }
 
 int PagedArray::get(long long index) {
@@ -207,10 +257,10 @@ int PagedArray::get(long long index) {
         exit(1);
     }
 
-    long long p = index / pageSize;
+    long long pageNumber = index / pageSize;
     int offset = static_cast<int>(index % pageSize);
 
-    int frame = loadPage(p);
+    int frame = loadPage(pageNumber);
     return pages[frame].data[offset];
 }
 
@@ -220,20 +270,25 @@ void PagedArray::set(long long index, int value) {
         exit(1);
     }
 
-    long long p = index / pageSize;
+    long long pageNumber = index / pageSize;
     int offset = static_cast<int>(index % pageSize);
 
-    int frame = loadPage(p);
-    pages[frame].data[offset] = value;
-    pages[frame].dirty = true;
+    int frame = loadPage(pageNumber);
+
+    if (pages[frame].data[offset] != value) {
+        pages[frame].data[offset] = value;
+        pages[frame].dirty = true;
+    }
 }
 
 void PagedArray::prefetch(long long index) {
-    if (index < 0 || index >= total) return;
+    if (index < 0 || index >= total) {
+        return;
+    }
 
-    long long pageNum = index / pageSize;
-    if (loadedPages.find(pageNum) == loadedPages.end()) {
-        loadPage(pageNum);
+    long long pageNumber = index / pageSize;
+    if (findLoadedPage(pageNumber) == -1) {
+        loadPage(pageNumber);
     }
 }
 
