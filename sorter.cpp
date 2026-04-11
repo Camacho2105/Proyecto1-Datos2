@@ -487,36 +487,42 @@ int main(int argc, char* argv[]) {
     }
 
     cout << "Escribiendo cambios al disco..." << endl;
-    arr.flushAll();
+arr.flushAll();
 
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
+auto end = chrono::high_resolution_clock::now();
+chrono::duration<double> elapsed = end - start;
 
-    bool sorted = isSorted(arr, n);
+//Guardar métricas JUSTO después del sorting
+long long sortHits = arr.getHits();
+long long sortFaults = arr.getFaults();
 
-    string readablePath = buildReadableOutputPath(cfg.output);
-    cout << "Generando archivo legible..." << endl;
-    generateReadableFile(arr, readablePath.c_str());
+bool sorted = isSorted(arr, n);
 
-    cout << "========================================\n";
-    cout << "RESULTADOS\n";
-    cout << "========================================\n";
-    cout << "Algoritmo: " << cfg.algorithm << endl;
-    cout << "Tiempo total: " << elapsed.count() << " segundos\n";
-    cout << "Page Hits: " << arr.getHits() << endl;
-    cout << "Page Faults: " << arr.getFaults() << endl;
+string readablePath = buildReadableOutputPath(cfg.output);
+cout << "Generando archivo legible..." << endl;
+generateReadableFile(arr, readablePath.c_str());
 
-    long long totalAccesses = arr.getHits() + arr.getFaults();
-    double hitRate = 0.0;
+cout << "========================================\n";
+cout << "RESULTADOS\n";
+cout << "========================================\n";
+cout << "Algoritmo: " << cfg.algorithm << endl;
+cout << "Tiempo total: " << elapsed.count() << " segundos\n";
 
-    if (totalAccesses > 0) {
-        hitRate = (static_cast<double>(arr.getHits()) / totalAccesses) * 100.0;
-    }
+//Usar los valores guardados
+cout << "Page Hits: " << sortHits << endl;
+cout << "Page Faults: " << sortFaults << endl;
 
-    cout << "Hit Rate: " << hitRate << "%\n";
-    cout << "Ordenado correctamente: " << (sorted ? "SI" : "NO") << endl;
-    cout << "Archivo legible: " << readablePath << endl;
-    cout << "========================================\n";
+long long totalAccesses = sortHits + sortFaults;
+double hitRate = 0.0;
 
-    return 0;
+if (totalAccesses > 0) {
+    hitRate = (static_cast<double>(sortHits) / totalAccesses) * 100.0;
+}
+
+cout << "Hit Rate: " << hitRate << "%\n";
+cout << "Ordenado correctamente: " << (sorted ? "SI" : "NO") << endl;
+cout << "Archivo legible: " << readablePath << endl;
+cout << "========================================\n";
+
+return 0;
 }

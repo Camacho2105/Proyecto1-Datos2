@@ -10,7 +10,7 @@ private:
         long long number;
         bool loaded;
         bool dirty;
-        long long lastUsed;
+        bool referenced;
     };
 
     FILE* file;
@@ -20,22 +20,19 @@ private:
     int pageCount;
 
     Page* pages;
-
-    // Mapeo directo: page number -> frame index, -1 si no esta cargada
     int* pageToFrame;
 
     long long hits;
     long long faults;
-    long long counter;
 
-    // Frames libres
     int freeFrameCount;
     int* freeFrames;
 
-    // Cache de la ultima pagina usada
     long long lastPageNumber;
     int lastFrame;
     bool hasLastPage;
+
+    int clockHand;
 
     int findLoadedPage(long long pageNumber);
     int loadPage(long long pageNumber);

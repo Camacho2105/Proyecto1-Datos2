@@ -8,15 +8,15 @@
 using namespace std;
 
 long long getSizeBytes(const string& size) {
-    if (size == "SMALL") return 256LL * 1024 * 1024;
-    if (size == "MEDIUM") return 512LL * 1024 * 1024;
-    if (size == "LARGE") return 1024LL * 1024 * 1024;
+    if (size == "SMALL") return 32LL * 1024 * 1024;
+    if (size == "MEDIUM") return 64LL * 1024 * 1024;
+    if (size == "LARGE") return 128LL * 1024 * 1024;
     return -1;
 }
 
 void printUsage() {
     cout << "Uso: ./generator -size <SIZE> -output <FILE>\n";
-    cout << "SIZE: SMALL (256MB), MEDIUM (512MB), LARGE (1024MB)\n";
+    cout << "SIZE: SMALL (32MB), MEDIUM (64MB), LARGE (128MB)\n";
 }
 
 bool parseArguments(int argc, char* argv[], string& sizeArg, string& output) {
@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
         int toWrite = (remaining > BUFFER_SIZE) ? BUFFER_SIZE : static_cast<int>(remaining);
 
         for (int i = 0; i < toWrite; i++) {
-            buffer[i] = rand();
+            buffer[i] = rand() - RAND_MAX / 2;
         }
 
         file.write(reinterpret_cast<char*>(buffer), toWrite * static_cast<int>(sizeof(int)));
